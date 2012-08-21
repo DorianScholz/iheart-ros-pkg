@@ -8,7 +8,4 @@
   <depend package="rosgraph"/>
   <depend package="rosmsg"/>
   <depend package="rospy"/>
-  <depend package="rosrecord"/>
 </package>
-
-

@@ -100,7 +100,7 @@ class Update(Thread):
             self._subs = {}
 
     def update_node_info(self):
-        # This might be wrong because a node may not be puslishing
+        # This might be wrong because a node may not be publishing
         # or subscribing, but this is how rosnode does it
         self._nodes = []
         if self._master.is_online() and len(self._topics) > 0:
@@ -136,6 +136,19 @@ class Update(Thread):
             subprocess.Popen(['roscore > /dev/null'], shell=True, stdin=None, stdout=None, stderr=None, cwd=os.environ['HOME'])
 
     def build_menu(self):
+        def add_menu_separator(menu):
+            menu_item = gtk.SeparatorMenuItem()
+            menu_item.show()
+            menu.append(menu_item)
+            
+        def add_menu_item(menu, text, enabled=True):
+            menu_item = gtk.MenuItem(text.replace('_', '__'))
+            if not enabled:
+                menu_item.set_state(gtk.STATE_INSENSITIVE)
+            menu_item.show()
+            menu.append(menu_item)
+            return menu_item
+
         menu = gtk.Menu()
         menu.set_double_buffered(True)
 
@@ -155,82 +168,45 @@ class Update(Thread):
         menu.append(self._roscore_menu_item)
 
         if len(self._topics) > 0:
-            menu_item = gtk.SeparatorMenuItem()
-            menu_item.show()
-            menu.append(menu_item)
+            add_menu_separator(menu)
 
-            menu_item = gtk.MenuItem('Topics')
-            menu_item.set_state(gtk.STATE_INSENSITIVE)
-            menu_item.show()
-            menu.append(menu_item)
+            add_menu_item(menu, 'Topics', False)
 
             for topic in self._topics:
-                menu_item = gtk.MenuItem('  ' + topic.replace('_','__'))
-                #menu_item.set_state(gtk.STATE_INSENSITIVE)
-                menu_item.show()
-
                 sub_menu = gtk.Menu()
 
-                sub_menu_item = gtk.MenuItem('Publishers')
-                sub_menu_item.set_state(gtk.STATE_INSENSITIVE)
-                sub_menu_item.show()
-                sub_menu.append(sub_menu_item)
+                add_menu_item(sub_menu, 'Publishers', False)
 
                 for pub in self._pubs.get(topic, []):
-                    sub_menu_item = gtk.MenuItem('  ' + pub.replace('_','__'))
-                    sub_menu_item.set_state(gtk.STATE_INSENSITIVE)
-                    sub_menu_item.show()
-                    sub_menu.append(sub_menu_item)
+                    add_menu_item(sub_menu, '  ' + pub, False)
 
-                sub_menu_item = gtk.MenuItem('Subscribers')
-                sub_menu_item.set_state(gtk.STATE_INSENSITIVE)
-                sub_menu_item.show()
-                sub_menu.append(sub_menu_item)
+                add_menu_item(sub_menu, 'Subscribers', False)
 
                 for sub in self._subs.get(topic, []):
-                    sub_menu_item = gtk.MenuItem('  ' + sub.replace('_','__'), False)
-                    sub_menu_item.set_state(gtk.STATE_INSENSITIVE)
-                    sub_menu_item.show()
-                    sub_menu.append(sub_menu_item)
+                    add_menu_item(sub_menu, '  ' + sub, False)
 
                 sub_menu.show()
+                menu_item = add_menu_item(menu, '  ' + topic)
                 menu_item.set_submenu(sub_menu)
-                menu.append(menu_item)
 
         if self._nodes is not None and len(self._nodes) > 0:
-            menu_item = gtk.SeparatorMenuItem()
-            menu_item.show()
-            menu.append(menu_item)
+            add_menu_separator(menu)
 
-            menu_item = gtk.MenuItem('Nodes')
-            menu_item.set_state(gtk.STATE_INSENSITIVE)
-            menu_item.show()
-            menu.append(menu_item)
+            add_menu_item(menu, 'Nodes', False)
 
             for node in self._nodes:
-                menu_item = gtk.MenuItem('  ' + node.replace('_','__'))
-                menu_item.set_state(gtk.STATE_INSENSITIVE)
-                menu_item.show()
-                menu.append(menu_item)
+                add_menu_item(menu, '  ' + node, False)
 
-        menu_item = gtk.SeparatorMenuItem()
-        menu_item.show()
-        menu.append(menu_item)
+        add_menu_separator(menu)
 
-        menu_item = gtk.MenuItem('Launch rqt__gui')
-        menu_item.show()
+        menu_item = add_menu_item(menu, 'Launch rqt_gui')
         menu_item.connect('activate', self.menuitem_launchrqt)
-        menu.append(menu_item)
 
-        menu_item = gtk.MenuItem('Launch rxConsole')
-        menu_item.show()
+        menu_item = add_menu_item(menu, 'Launch rxConsole')
         menu_item.connect('activate', self.menuitem_launchconsole)
-        menu.append(menu_item)
 
-        menu_item = gtk.MenuItem('Quit')
-        menu_item.show()
+        menu_item = add_menu_item(menu, 'Quit')
         menu_item.connect('activate', self.menuitem_quit)
-        menu.append(menu_item)
 
         self._ind.set_menu(menu)
 
