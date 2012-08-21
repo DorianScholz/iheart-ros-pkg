@@ -19,7 +19,7 @@
 #    from this software without specific prior written permission.
 #
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+# 'AS IS' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 # LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
 # FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
 # COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
@@ -31,33 +31,29 @@
 # ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 #
-import gobject
 import gtk
 import time
 import os
 import signal
 import subprocess
-from threading import Thread, Lock
-from thread import error as thread_error
+from threading import Thread
 import appindicator
 import sys
+import glob
 
 import roslib; roslib.load_manifest('rind')
 import rosgraph.masterapi
 
 __package_dir = roslib.packages.get_pkg_dir('rind')
 
-class Update (Thread):
-    def __init__(self,ind):
-        #self.lock = Lock()
-        #self.lock.acquire()
+class Update(Thread):
+    def __init__(self, ind):
         self._ind = ind
         self._exit = False
         self._master = rosgraph.masterapi.Master('/rind')
         self._master_online = 0
         self._roscore_pid = None
-        self._menu = None
-        self._roscore_item = None
+        self._roscore_menu_item = None
         self._topics = [] # List of Topics
         self._nodes = [] # List of Topics
         self._pubs = {} # Publishers keyed by topic
@@ -68,20 +64,21 @@ class Update (Thread):
 
     def check_master(self):
         if not self._master_online and self._master.is_online():
-            print "Master has come online"
+            print 'Master has come online'
             self._master_online = True
 
-            if os.access(os.environ['HOME']+'/.ros/roscore.pid',os.R_OK):
-                pid_file = open(os.environ['HOME']+'/.ros/roscore.pid',"r")
+            pid_files = glob.glob(os.path.join(os.environ['HOME'], '.ros', 'roscore*.pid'))
+            if pid_files and os.access(pid_files[0], os.R_OK):
+                pid_file = open(pid_files[0], 'r')
                 self._roscore_pid = int(pid_file.readline())
-                print "ROS Core pid %d" % self._roscore_pid
             else:
-                print "Setting pid to None"
                 self._roscore_pid = None
+            print 'ROS Core pid', self._roscore_pid
             # FIXME Figure out how to kill roscore based on the master pid?
             #self._roscore_pid = self._master.getPid()
+            
         elif self._master_online and not self._master.is_online():
-            print "Master has gone offline"
+            print 'Master has gone offline'
             self._master_online = False
             self._topics = []
             self._nodes = []
@@ -91,14 +88,12 @@ class Update (Thread):
 
     def update_topic_info(self):
         if self._master.is_online():
-            topic_pubs, topic_subs, srvs = self._master.getSystemState()
-            #self._topic = {}
-            for topic,pubs in topic_pubs:
+            topic_pubs, topic_subs, _ = self._master.getSystemState()
+            for topic, pubs in topic_pubs:
                 self._pubs[topic] = pubs
-            for topic,subs in topic_subs:
+            for topic, subs in topic_subs:
                 self._subs[topic] = subs
-            self._topics = list(set(self._pubs.keys() + self._subs.keys()))
-            self._topics.sort()
+            self._topics = sorted(set(self._pubs.keys() + self._subs.keys()))
         else:
             self._topics = []
             self._pubs = {}
@@ -107,139 +102,144 @@ class Update (Thread):
     def update_node_info(self):
         # This might be wrong because a node may not be puslishing
         # or subscribing, but this is how rosnode does it
-        if self._master.is_online() and self._topics != None and self._topics != []:
-            self._nodes=[]
-            for nodes in self._pubs.values():
-                self._nodes = self._nodes + nodes
-            for nodes in self._subs.values():
-                self._nodes = self._nodes + nodes
-            self._nodes = list(set(self._nodes))
-            #self._nodes = list(set(self._pubs.values() + self._subs.values()))
+        self._nodes = []
+        if self._master.is_online() and len(self._topics) > 0:
+            nodes_set = set()
+            nodes_set.update(*self._pubs.values())
+            nodes_set.update(*self._subs.values())
+            self._nodes = sorted(nodes_set)
 
-    def menuitem_quit (self,item):
-        print "Shutting down"
+    def menuitem_quit(self, item):
+        print 'Shutting down'
         self.stop()
         # Shutdown here...
         sys.exit(0)
 
-    def menuitem_launchconsole (self,item):
-        process = subprocess.Popen(['rxconsole'], shell=True, stdin=None, stdout=None, stderr=None, cwd=os.environ['HOME'])
+    def menuitem_launchconsole(self, item):
+        subprocess.Popen(['rxconsole'], shell=True, stdin=None, stdout=None, stderr=None, cwd=os.environ['HOME'])
 
-    def menuitem_roscore (self,item):
+    def menuitem_launchrqt(self, item):
+        subprocess.Popen(['rosrun rqt_gui rqt_gui'], shell=True, stdin=None, stdout=None, stderr=None, cwd=os.environ['HOME'])
+
+    def menuitem_roscore(self, item):
         if self._master_online:
-            if self._roscore_pid != None:
+            if self._roscore_pid is not None:
                 print 'Stopping ROS Core'
-                os.kill(self._roscore_pid,signal.SIGINT)
+                os.kill(self._roscore_pid, signal.SIGINT)
                 self._master_online = False
             else:
                 print 'Error Stopping ROS Core by PID'
         else:
             print 'Starting ROS Core'
-            self._roscore_item.set_sensitive(False)
-            #process = subprocess.Popen(['roscore --pid ~/.ros/roscore.pid'], shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=os.environ['HOME'])
-            process = subprocess.Popen(['roscore --pid ~/.ros/roscore.pid > /dev/null'], shell=True, stdin=None, stdout=None, stderr=None, cwd=os.environ['HOME'])
+            self._roscore_menu_item.set_sensitive(False)
+            #subprocess.Popen(['roscore'], shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=os.environ['HOME'])
+            subprocess.Popen(['roscore > /dev/null'], shell=True, stdin=None, stdout=None, stderr=None, cwd=os.environ['HOME'])
 
     def build_menu(self):
         menu = gtk.Menu()
         menu.set_double_buffered(True)
+
         if self._master_online:
-            self._ind.set_icon ("rind-panel")
-            if self._roscore_pid != None:
-                self._roscore_item = gtk.MenuItem("Shutdown ROS Core")
+            self._ind.set_icon('rind-panel')
+            if self._roscore_pid is not None:
+                self._roscore_menu_item = gtk.MenuItem('Shutdown ROS Core')
             else:
-                self._roscore_item = gtk.MenuItem("Connected to ROS Master")
-                self._roscore_item.set_state(gtk.STATE_INSENSITIVE)
+                self._roscore_menu_item = gtk.MenuItem('Connected to ROS Master')
+                self._roscore_menu_item.set_state(gtk.STATE_INSENSITIVE)
         else:
-            self._ind.set_icon ("rind-idle")
-            self._roscore_item = gtk.MenuItem("Launch ROS Core")
-            self._roscore_item.set_sensitive(True)
-            #self._roscore_item.set_state(gtk.STATE_INSENSITIVE)
-            #self._roscore_item.set_state(gtk.STATE_NORMAL)
-            #self._roscore_item.set_sensitive(False)
-        self._roscore_item.show()
-        self._roscore_item.connect("activate",self.menuitem_roscore)
-        menu.append(self._roscore_item)
-        if self._topics != None and self._topics != []:
-            topic_item = gtk.SeparatorMenuItem()
-            topic_item.show()
-            menu.append(topic_item)
-            topic_item = gtk.MenuItem("Topics")
-            topic_item.set_state(gtk.STATE_INSENSITIVE)
-            topic_item.show()
-            menu.append(topic_item)
+            self._ind.set_icon('rind-idle')
+            self._roscore_menu_item = gtk.MenuItem('Launch ROS Core')
+            self._roscore_menu_item.set_sensitive(True)
+        self._roscore_menu_item.show()
+        self._roscore_menu_item.connect('activate', self.menuitem_roscore)
+        menu.append(self._roscore_menu_item)
+
+        if len(self._topics) > 0:
+            menu_item = gtk.SeparatorMenuItem()
+            menu_item.show()
+            menu.append(menu_item)
+
+            menu_item = gtk.MenuItem('Topics')
+            menu_item.set_state(gtk.STATE_INSENSITIVE)
+            menu_item.show()
+            menu.append(menu_item)
+
             for topic in self._topics:
-                topic_item = gtk.MenuItem("  "+topic)
-                topic_item.set_state(gtk.STATE_INSENSITIVE)
-                topic_item.show()
+                menu_item = gtk.MenuItem('  ' + topic.replace('_','__'))
+                #menu_item.set_state(gtk.STATE_INSENSITIVE)
+                menu_item.show()
 
-                # appindicators submenus broken
-                """
-                topic_menu = gtk.Menu()
+                sub_menu = gtk.Menu()
 
-                topic_menu_item = gtk.MenuItem("Publishers")
-                topic_menu_item.set_state(gtk.STATE_INSENSITIVE)
-                topic_menu_item.show()
-                topic_menu.append(topic_menu_item)
+                sub_menu_item = gtk.MenuItem('Publishers')
+                sub_menu_item.set_state(gtk.STATE_INSENSITIVE)
+                sub_menu_item.show()
+                sub_menu.append(sub_menu_item)
 
-                if topic in self._pubs and self._pubs[topic] != []:
-                    for pub in self._pubs[topic]:
-                        topic_menu_item = gtk.MenuItem("  " + pub)
-                        topic_menu_item.set_state(gtk.STATE_INSENSITIVE)
-                        topic_menu_item.show()
-                        topic_menu.append(topic_menu_item)
+                for pub in self._pubs.get(topic, []):
+                    sub_menu_item = gtk.MenuItem('  ' + pub.replace('_','__'))
+                    sub_menu_item.set_state(gtk.STATE_INSENSITIVE)
+                    sub_menu_item.show()
+                    sub_menu.append(sub_menu_item)
 
-                topic_menu_item = gtk.MenuItem("Subscribers")
-                topic_menu_item.set_state(gtk.STATE_INSENSITIVE)
-                topic_menu_item.show()
-                topic_menu.append(topic_menu_item)
+                sub_menu_item = gtk.MenuItem('Subscribers')
+                sub_menu_item.set_state(gtk.STATE_INSENSITIVE)
+                sub_menu_item.show()
+                sub_menu.append(sub_menu_item)
 
-                if topic in self._subs and self._subs[topic] != []:
-                    for sub in self._subs[topic]:
-                        topic_menu_item = gtk.MenuItem("  " + sub,False)
-                        topic_menu_item.set_state(gtk.STATE_INSENSITIVE)
-                        topic_menu_item.show()
-                        topic_menu.append(topic_menu_item)
+                for sub in self._subs.get(topic, []):
+                    sub_menu_item = gtk.MenuItem('  ' + sub.replace('_','__'), False)
+                    sub_menu_item.set_state(gtk.STATE_INSENSITIVE)
+                    sub_menu_item.show()
+                    sub_menu.append(sub_menu_item)
 
-                topic_menu.show()
-                #self._ind.set_menu(topic_menu)
-                #topic_item.set_submenu(topic_menu)
-                """
-                menu.append(topic_item)
-        if self._nodes != None and self._nodes != []:
-            node_item = gtk.SeparatorMenuItem()
-            node_item.show()
-            menu.append(node_item)
-            node_item = gtk.MenuItem("Nodes")
-            node_item.set_state(gtk.STATE_INSENSITIVE)
-            node_item.show()
-            menu.append(node_item)
+                sub_menu.show()
+                menu_item.set_submenu(sub_menu)
+                menu.append(menu_item)
+
+        if self._nodes is not None and len(self._nodes) > 0:
+            menu_item = gtk.SeparatorMenuItem()
+            menu_item.show()
+            menu.append(menu_item)
+
+            menu_item = gtk.MenuItem('Nodes')
+            menu_item.set_state(gtk.STATE_INSENSITIVE)
+            menu_item.show()
+            menu.append(menu_item)
+
             for node in self._nodes:
-                node_item = gtk.MenuItem("  "+node)
-                node_item.set_state(gtk.STATE_INSENSITIVE)
-                node_item.show()
-                menu.append(node_item)
-        console_item = gtk.SeparatorMenuItem()
-        console_item.show()
-        menu.append(console_item)
-        console_item = gtk.MenuItem("Launch Console")
-        console_item.show()
-        console_item.connect("activate",self.menuitem_launchconsole)
-        menu.append(console_item)
-        quit_item = gtk.MenuItem("Quit")
-        quit_item.show()
-        quit_item.connect("activate",self.menuitem_quit)
-        menu.append(quit_item)
-        self._menu = menu
-        self._ind.set_menu(self._menu)
-        #self._ind.set_menu(topic_menu)
+                menu_item = gtk.MenuItem('  ' + node.replace('_','__'))
+                menu_item.set_state(gtk.STATE_INSENSITIVE)
+                menu_item.show()
+                menu.append(menu_item)
+
+        menu_item = gtk.SeparatorMenuItem()
+        menu_item.show()
+        menu.append(menu_item)
+
+        menu_item = gtk.MenuItem('Launch rqt__gui')
+        menu_item.show()
+        menu_item.connect('activate', self.menuitem_launchrqt)
+        menu.append(menu_item)
+
+        menu_item = gtk.MenuItem('Launch rxConsole')
+        menu_item.show()
+        menu_item.connect('activate', self.menuitem_launchconsole)
+        menu.append(menu_item)
+
+        menu_item = gtk.MenuItem('Quit')
+        menu_item.show()
+        menu_item.connect('activate', self.menuitem_quit)
+        menu.append(menu_item)
+
+        self._ind.set_menu(menu)
 
 
     def run(self):
         while not self._exit:
             self.check_master()
-            if self._master_online:
-                self.update_topic_info()
-                self.update_node_info()
+            self.update_topic_info()
+            self.update_node_info()
             gtk.gdk.threads_enter()
             self.build_menu()
             gtk.gdk.threads_leave()
@@ -248,11 +248,11 @@ class Update (Thread):
     def stop(self):
         self._exit = True
 
-if __name__ == "__main__":
-    ind = appindicator.Indicator ("example-simple-client", "rind-idle", appindicator.CATEGORY_APPLICATION_STATUS, __package_dir + '/icons')
-    ind.set_status (appindicator.STATUS_ACTIVE)
-    #ind.set_status (appindicator.STATUS_ATTENTION)
-    ind.set_attention_icon ("rind-red")
+if __name__ == '__main__':
+    ind = appindicator.Indicator('example-simple-client', 'rind-idle', appindicator.CATEGORY_APPLICATION_STATUS, __package_dir + '/icons')
+    ind.set_status(appindicator.STATUS_ACTIVE)
+    #ind.set_status(appindicator.STATUS_ATTENTION)
+    ind.set_attention_icon('rind-red')
     update = Update(ind)
     update.start()
     gtk.gdk.threads_init()
