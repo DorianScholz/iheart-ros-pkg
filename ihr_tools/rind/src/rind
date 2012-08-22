@@ -69,15 +69,19 @@ class IndicatorUpdateThread(Thread):
             print 'Master has come online'
             self._master_online = True
 
-            pid_files = glob.glob(os.path.join(os.environ['HOME'], '.ros', 'roscore*.pid'))
-            if pid_files and os.access(pid_files[0], os.R_OK):
-                pid_file = open(pid_files[0], 'r')
-                self._roscore_pid = int(pid_file.readline())
-            else:
-                self._roscore_pid = None
+            try:
+                # try to get roscore's pid from the pid of rosmaster 
+                self._roscore_pid = int(subprocess.check_output(['ps', '-p', '%d' % self._master.getPid(), '-oppid=']).strip())
+            except:
+                # try to get roscore's pid from .pid file
+                pid_files = glob.glob(os.path.join(os.environ['HOME'], '.ros', 'roscore*.pid'))
+                if pid_files and os.access(pid_files[0], os.R_OK):
+                    pid_file = open(pid_files[0], 'r')
+                    self._roscore_pid = int(pid_file.readline())
+                else:
+                    self._roscore_pid = None
+            
             print 'ROS Core pid', self._roscore_pid
-            # FIXME Figure out how to kill roscore based on the master pid?
-            #self._roscore_pid = self._master.getPid()
             
         elif self._master_online and not self._master.is_online():
             print 'Master has gone offline'
@@ -176,6 +180,7 @@ class IndicatorUpdateThread(Thread):
 
             for topic in self._topics:
                 sub_menu = gtk.Menu()
+                sub_menu.set_double_buffered(True)
 
                 add_menu_item(sub_menu, 'Publishers', False)
 
@@ -201,14 +206,13 @@ class IndicatorUpdateThread(Thread):
 
         add_menu_separator(menu)
 
-        if self._master_online:
-            if _has_rqt_gui:
-                menu_item = add_menu_item(menu, 'Launch rqt_gui')
-                menu_item.connect('activate', self.menuitem_launchrqt)
-    
-            if _has_rxtools:
-                menu_item = add_menu_item(menu, 'Launch rxConsole')
-                menu_item.connect('activate', self.menuitem_launchconsole)
+        if _has_rqt_gui:
+            menu_item = add_menu_item(menu, 'Launch rqt_gui', self._master_online)
+            menu_item.connect('activate', self.menuitem_launchrqt)
+
+        if _has_rxtools:
+            menu_item = add_menu_item(menu, 'Launch rxConsole', self._master_online)
+            menu_item.connect('activate', self.menuitem_launchconsole)
 
         menu_item = add_menu_item(menu, 'Quit')
         menu_item.connect('activate', self.menuitem_quit)
