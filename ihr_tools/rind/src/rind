@@ -43,26 +43,25 @@ import glob
 
 import roslib; roslib.load_manifest('rind')
 import rosgraph.masterapi
+import rosnode
 
 __package_dir = roslib.packages.get_pkg_dir('rind')
 _has_rxtools = roslib.packages.get_pkg_dir('rxtools', required=False) is not None
 _has_rqt_gui = roslib.packages.get_pkg_dir('rqt_gui', required=False) is not None
 
 class IndicatorUpdateThread(Thread):
-    def __init__(self, ind):
-        self._ind = ind
+    def __init__(self, indicator):
+        super(IndicatorUpdateThread, self).__init__()
+        self._ind = indicator
         self._exit = False
         self._master = rosgraph.masterapi.Master('/rind')
         self._master_online = 0
         self._roscore_pid = None
-        self._roscore_menu_item = None
         self._topics = [] # List of Topics
         self._nodes = [] # List of Topics
-        self._pubs = {} # Publishers keyed by topic
-        self._subs = {} # Subscribers keyed by topic
-        # Connect GTK callbacks
-        self.build_menu()
-        Thread.__init__(self)
+        self._publishers = {} # Publishers keyed by topic
+        self._subscribers = {} # Subscribers keyed by topic
+        self._menu_description = []
 
     def check_master(self):
         if not self._master_online and self._master.is_online():
@@ -89,30 +88,33 @@ class IndicatorUpdateThread(Thread):
             self._topics = []
             self._nodes = []
             self._roscore_pid = None
-            self._pubs = {}
-            self._subs = {}
+            self._publishers = {}
+            self._subscribers = {}
 
     def update_topic_info(self):
         if self._master.is_online():
-            topic_pubs, topic_subs, _ = self._master.getSystemState()
-            for topic, pubs in topic_pubs:
-                self._pubs[topic] = pubs
-            for topic, subs in topic_subs:
-                self._subs[topic] = subs
-            self._topics = sorted(set(self._pubs.keys() + self._subs.keys()))
+            topic_pubs, topic_subs, service_providers = self._master.getSystemState()
+            self._publishers = dict(topic_pubs)
+            self._subscribers = dict(topic_subs)
+            self._service_providers = dict(service_providers)
+            self._topics = sorted(set(self._publishers.keys() + self._subscribers.keys()))
         else:
             self._topics = []
-            self._pubs = {}
-            self._subs = {}
+            self._publishers = {}
+            self._subscribers = {}
+            self._service_providers = {}
 
     def update_node_info(self):
+        self._nodes = []
+        if self._master.is_online():
+            self._nodes = rosnode.get_node_names()
+        return
         # This might be wrong because a node may not be publishing
         # or subscribing, but this is how rosnode does it
-        self._nodes = []
         if self._master.is_online() and len(self._topics) > 0:
             nodes_set = set()
-            nodes_set.update(*self._pubs.values())
-            nodes_set.update(*self._subs.values())
+            nodes_set.update(*self._publishers.values())
+            nodes_set.update(*self._subscribers.values())
             self._nodes = sorted(nodes_set)
 
     def menuitem_quit(self, item):
@@ -121,7 +123,7 @@ class IndicatorUpdateThread(Thread):
         # Shutdown here...
         sys.exit(0)
 
-    def menuitem_launchconsole(self, item):
+    def menuitem_launchrxconsole(self, item):
         subprocess.Popen(['rxconsole'], shell=True, stdin=None, stdout=None, stderr=None, cwd=os.environ['HOME'])
 
     def menuitem_launchrqt(self, item):
@@ -137,108 +139,129 @@ class IndicatorUpdateThread(Thread):
                 print 'Error Stopping ROS Core by PID'
         else:
             print 'Starting ROS Core'
-            self._roscore_menu_item.set_sensitive(False)
             #subprocess.Popen(['roscore'], shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=os.environ['HOME'])
             subprocess.Popen(['roscore > /dev/null'], shell=True, stdin=None, stdout=None, stderr=None, cwd=os.environ['HOME'])
 
     def build_menu(self):
-        def add_menu_separator(menu):
-            menu_item = gtk.SeparatorMenuItem()
-            menu_item.show()
-            menu.append(menu_item)
-            
-        def add_menu_item(menu, text, enabled=True):
-            menu_item = gtk.MenuItem(text.replace('_', '__'))
-            if not enabled:
-                menu_item.set_state(gtk.STATE_INSENSITIVE)
-            menu_item.show()
-            menu.append(menu_item)
-            return menu_item
-
-        menu = gtk.Menu()
-        menu.set_double_buffered(True)
-
+        menu_descripion = []
+        menu_item_description = {'activate': self.menuitem_roscore}
         if self._master_online:
             self._ind.set_icon('rind-panel')
             if self._roscore_pid is not None:
-                self._roscore_menu_item = gtk.MenuItem('Shutdown ROS Core')
+                menu_item_description['text'] = 'Shutdown ROS Core'
             else:
-                self._roscore_menu_item = gtk.MenuItem('Connected to ROS Master')
-                self._roscore_menu_item.set_state(gtk.STATE_INSENSITIVE)
+                menu_item_description['text'] = 'Connected to ROS Master'
+                menu_item_description['enabled'] = False
         else:
             self._ind.set_icon('rind-idle')
-            self._roscore_menu_item = gtk.MenuItem('Launch ROS Core')
-            self._roscore_menu_item.set_sensitive(True)
-        self._roscore_menu_item.show()
-        self._roscore_menu_item.connect('activate', self.menuitem_roscore)
-        menu.append(self._roscore_menu_item)
+            menu_item_description['text'] = 'Launch ROS Core'
+        menu_descripion.append(menu_item_description)
 
         if len(self._topics) > 0:
-            add_menu_separator(menu)
+            menu_descripion.append({})
 
-            add_menu_item(menu, 'Topics', False)
+            menu_descripion.append({'text': 'Topics', 'enabled': False})
 
             for topic in self._topics:
-                sub_menu = gtk.Menu()
-                sub_menu.set_double_buffered(True)
+                sub_menu_items = []
 
-                add_menu_item(sub_menu, 'Publishers', False)
+                sub_menu_items.append({'text': 'Publishers', 'enabled': False})
 
-                for pub in self._pubs.get(topic, []):
-                    add_menu_item(sub_menu, '  ' + pub, False)
+                for publisher in self._publishers.get(topic, []):
+                    sub_menu_items.append({'text': '  ' + publisher, 'enabled': False})
 
-                add_menu_item(sub_menu, 'Subscribers', False)
+                sub_menu_items.append({})
+                sub_menu_items.append({'text': 'Subscribers', 'enabled': False})
 
-                for sub in self._subs.get(topic, []):
-                    add_menu_item(sub_menu, '  ' + sub, False)
+                for subscriber in self._subscribers.get(topic, []):
+                    sub_menu_items.append({'text': '  ' + subscriber, 'enabled': False})
 
-                sub_menu.show()
-                menu_item = add_menu_item(menu, '  ' + topic)
-                menu_item.set_submenu(sub_menu)
+                menu_descripion.append({'text': '  ' + topic, 'submenu_description': sub_menu_items})
+
+        if len(self._service_providers) > 0:
+            menu_descripion.append({})
+
+            menu_descripion.append({'text': 'Services', 'enabled': False})
+
+            for service in sorted(self._service_providers.keys()):
+                sub_menu_items = []
+
+                sub_menu_items.append({'text': 'Providers', 'enabled': False})
+
+                for provider in self._service_providers.get(service, []):
+                    sub_menu_items.append({'text': '  ' + provider, 'enabled': False})
+
+                menu_descripion.append({'text': '  ' + service, 'submenu_description': sub_menu_items})
 
         if self._nodes is not None and len(self._nodes) > 0:
-            add_menu_separator(menu)
+            menu_descripion.append({})
 
-            add_menu_item(menu, 'Nodes', False)
+            menu_descripion.append({'text': 'Nodes', 'enabled': False})
 
             for node in self._nodes:
-                add_menu_item(menu, '  ' + node, False)
+                menu_descripion.append({'text': '  ' + node, 'enabled': False})
 
-        add_menu_separator(menu)
+        menu_descripion.append({})
 
         if _has_rqt_gui:
-            menu_item = add_menu_item(menu, 'Launch rqt_gui', self._master_online)
-            menu_item.connect('activate', self.menuitem_launchrqt)
+            menu_descripion.append({'text': 'Launch rqt_gui', 'enabled': self._master_online, 'activate': self.menuitem_launchrqt})
 
         if _has_rxtools:
-            menu_item = add_menu_item(menu, 'Launch rxConsole', self._master_online)
-            menu_item.connect('activate', self.menuitem_launchconsole)
+            menu_descripion.append({'text': 'Launch rxConsole', 'enabled': self._master_online, 'activate': self.menuitem_launchrxconsole})
 
-        menu_item = add_menu_item(menu, 'Quit')
-        menu_item.connect('activate', self.menuitem_quit)
+        menu_descripion.append({'text': 'Quit', 'activate': self.menuitem_quit})
 
-        self._ind.set_menu(menu)
+        return menu_descripion
 
+    def update_menu(self):
+        def add_menu_item(menu=None, text=None, enabled=True, activate=None, **kwargs):
+            if text is None:
+                menu_item = gtk.SeparatorMenuItem()
+            else:
+                menu_item = gtk.MenuItem(text.replace('_', '__'))
+                menu_item.set_sensitive(enabled)
+                if activate is not None:
+                    menu_item.connect('activate', activate)
+            menu_item.show()
+            if menu is not None:
+                menu.append(menu_item)
+            return menu_item
+        
+        def generate_gtk_menu(menu_descripion):
+            menu = gtk.Menu()
+            menu.set_double_buffered(True)
+            for menu_item_description in menu_descripion:
+                menu_item = add_menu_item(menu=menu, **menu_item_description)
+                if menu_item_description.get('submenu_description', None) is not None:
+                    menu_item.set_submenu(generate_gtk_menu(menu_item_description['submenu_description']))
+            return menu     
+
+        self._ind.set_menu(generate_gtk_menu(self._menu_description))
 
     def run(self):
         while not self._exit:
             self.check_master()
             self.update_topic_info()
             self.update_node_info()
-            gtk.gdk.threads_enter()
-            self.build_menu()
-            gtk.gdk.threads_leave()
+            menu_descripion = self.build_menu()
+            if str(self._menu_description) != str(menu_descripion):
+                print 'old:', self._menu_description
+                print 'new:', menu_descripion
+                self._menu_description = menu_descripion
+                gtk.gdk.threads_enter()
+                self.update_menu()
+                gtk.gdk.threads_leave()
             time.sleep(1)
 
     def stop(self):
         self._exit = True
 
 if __name__ == '__main__':
-    ind = appindicator.Indicator('ros-indicator', 'rind-idle', appindicator.CATEGORY_APPLICATION_STATUS, __package_dir + '/icons')
-    ind.set_status(appindicator.STATUS_ACTIVE)
-    #ind.set_status(appindicator.STATUS_ATTENTION)
-    ind.set_attention_icon('rind-red')
-    indicatorUpdateThread = IndicatorUpdateThread(ind)
+    indicator = appindicator.Indicator('ros-indicator', 'rind-idle', appindicator.CATEGORY_APPLICATION_STATUS, __package_dir + '/icons')
+    indicator.set_status(appindicator.STATUS_ACTIVE)
+    #indicator.set_status(appindicator.STATUS_ATTENTION)
+    indicator.set_attention_icon('rind-red')
+    indicatorUpdateThread = IndicatorUpdateThread(indicator)
     indicatorUpdateThread.start()
     gtk.gdk.threads_init()
     try:
