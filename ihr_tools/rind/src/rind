@@ -201,15 +201,14 @@ class IndicatorUpdateThread(Thread):
 
             add_submenu(menu_description, 'Nodes', node_menu_description, seperator=True)
 
-        menu_description.append({})
-        menu_description.append({'text': 'Launchers', 'enabled': False})
-
+        launcher_menu_description = []
         if _has_rqt_gui:
-            menu_description.append({'text': 'rqt_gui', 'enabled': self._master_online, 'activate': self.menuitem_launchrqt})
-
+            launcher_menu_description.append({'text': 'rqt_gui', 'enabled': self._master_online, 'activate': self.menuitem_launchrqt})
         if _has_rxtools:
-            menu_description.append({'text': 'rxConsole', 'enabled': self._master_online, 'activate': self.menuitem_launchrxconsole})
+            launcher_menu_description.append({'text': 'rxConsole', 'enabled': self._master_online, 'activate': self.menuitem_launchrxconsole})
+        add_submenu(menu_description, 'Launchers', launcher_menu_description, seperator=True)
 
+        menu_description.append({})
         menu_description.append({'text': 'Quit', 'activate': self.menuitem_quit})
 
         return menu_description
