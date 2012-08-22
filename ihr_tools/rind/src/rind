@@ -108,14 +108,6 @@ class IndicatorUpdateThread(Thread):
         self._nodes = []
         if self._master.is_online():
             self._nodes = rosnode.get_node_names()
-        return
-        # This might be wrong because a node may not be publishing
-        # or subscribing, but this is how rosnode does it
-        if self._master.is_online() and len(self._topics) > 0:
-            nodes_set = set()
-            nodes_set.update(*self._publishers.values())
-            nodes_set.update(*self._subscribers.values())
-            self._nodes = sorted(nodes_set)
 
     def menuitem_quit(self, item):
         print 'Shutting down'
@@ -143,7 +135,19 @@ class IndicatorUpdateThread(Thread):
             subprocess.Popen(['roscore > /dev/null'], shell=True, stdin=None, stdout=None, stderr=None, cwd=os.environ['HOME'])
 
     def build_menu(self):
-        menu_descripion = []
+        def add_submenu(menu_description, submenu_name, submenu_description, folding_item_count=5, seperator=False):
+            if len(submenu_description) == 0:
+                return
+            if seperator:
+                menu_description.append({})
+            menu_description.append({'text': submenu_name})
+            if len(submenu_description) > folding_item_count:
+                menu_description[-1]['submenu_description'] = submenu_description
+            else:
+                menu_description[-1]['subitem_description'] = submenu_description
+                menu_description[-1]['enabled'] = False
+            
+        menu_description = []
         menu_item_description = {'activate': self.menuitem_roscore}
         if self._master_online:
             self._ind.set_icon('rind-panel')
@@ -155,70 +159,67 @@ class IndicatorUpdateThread(Thread):
         else:
             self._ind.set_icon('rind-idle')
             menu_item_description['text'] = 'Launch ROS Core'
-        menu_descripion.append(menu_item_description)
+        menu_description.append(menu_item_description)
 
         if len(self._topics) > 0:
-            menu_descripion.append({})
-
-            menu_descripion.append({'text': 'Topics', 'enabled': False})
-
+            topic_menu_descripion = []
             for topic in self._topics:
-                sub_menu_items = []
-
-                sub_menu_items.append({'text': 'Publishers', 'enabled': False})
-
+                submenu_description = []
+                
+                publisher_menu_description = []
                 for publisher in self._publishers.get(topic, []):
-                    sub_menu_items.append({'text': '  ' + publisher, 'enabled': False})
+                    publisher_menu_description.append({'text': publisher, 'enabled': False})
+                add_submenu(submenu_description, 'Publishers', publisher_menu_description)
 
-                sub_menu_items.append({})
-                sub_menu_items.append({'text': 'Subscribers', 'enabled': False})
-
+                subscriber_menu_description = []
                 for subscriber in self._subscribers.get(topic, []):
-                    sub_menu_items.append({'text': '  ' + subscriber, 'enabled': False})
+                    subscriber_menu_description.append({'text': subscriber, 'enabled': False})
+                add_submenu(submenu_description, 'Subscribers', subscriber_menu_description)
 
-                menu_descripion.append({'text': '  ' + topic, 'submenu_description': sub_menu_items})
+                add_submenu(topic_menu_descripion, topic, submenu_description, folding_item_count=0)
+            
+            add_submenu(menu_description, 'Topics', topic_menu_descripion, seperator=True)
 
         if len(self._service_providers) > 0:
-            menu_descripion.append({})
-
-            menu_descripion.append({'text': 'Services', 'enabled': False})
-
+            service_menu_descripion = []
             for service in sorted(self._service_providers.keys()):
-                sub_menu_items = []
+                submenu_description = []
 
-                sub_menu_items.append({'text': 'Providers', 'enabled': False})
-
+                provider_description = []
                 for provider in self._service_providers.get(service, []):
-                    sub_menu_items.append({'text': '  ' + provider, 'enabled': False})
+                    provider_description.append({'text': provider, 'enabled': False})
+                add_submenu(submenu_description, 'Providers', provider_description)
 
-                menu_descripion.append({'text': '  ' + service, 'submenu_description': sub_menu_items})
+                add_submenu(service_menu_descripion, service, submenu_description, folding_item_count=0)
 
-        if self._nodes is not None and len(self._nodes) > 0:
-            menu_descripion.append({})
+            add_submenu(menu_description, 'Services', service_menu_descripion, seperator=True)
 
-            menu_descripion.append({'text': 'Nodes', 'enabled': False})
-
+        if len(self._nodes) > 0:
+            node_menu_description = []
             for node in self._nodes:
-                menu_descripion.append({'text': '  ' + node, 'enabled': False})
+                node_menu_description.append({'text': node, 'enabled': False})
 
-        menu_descripion.append({})
+            add_submenu(menu_description, 'Nodes', node_menu_description, seperator=True)
+
+        menu_description.append({})
+        menu_description.append({'text': 'Launchers', 'enabled': False})
 
         if _has_rqt_gui:
-            menu_descripion.append({'text': 'Launch rqt_gui', 'enabled': self._master_online, 'activate': self.menuitem_launchrqt})
+            menu_description.append({'text': 'rqt_gui', 'enabled': self._master_online, 'activate': self.menuitem_launchrqt})
 
         if _has_rxtools:
-            menu_descripion.append({'text': 'Launch rxConsole', 'enabled': self._master_online, 'activate': self.menuitem_launchrxconsole})
+            menu_description.append({'text': 'rxConsole', 'enabled': self._master_online, 'activate': self.menuitem_launchrxconsole})
 
-        menu_descripion.append({'text': 'Quit', 'activate': self.menuitem_quit})
+        menu_description.append({'text': 'Quit', 'activate': self.menuitem_quit})
 
-        return menu_descripion
+        return menu_description
 
     def update_menu(self):
-        def add_menu_item(menu=None, text=None, enabled=True, activate=None, **kwargs):
+        def add_menu_item(menu=None, text=None, enabled=True, activate=None, indentation='', **kwargs):
             if text is None:
                 menu_item = gtk.SeparatorMenuItem()
             else:
-                menu_item = gtk.MenuItem(text.replace('_', '__'))
+                menu_item = gtk.MenuItem(indentation + text.replace('_', '__'))
                 menu_item.set_sensitive(enabled)
                 if activate is not None:
                     menu_item.connect('activate', activate)
@@ -227,14 +228,24 @@ class IndicatorUpdateThread(Thread):
                 menu.append(menu_item)
             return menu_item
         
+        def generate_gtk_menu_items(menu_descripion, indentation=''):
+            menu_items = []
+            for menu_item_description in menu_descripion:
+                menu_item = add_menu_item(indentation=indentation, **menu_item_description)
+                menu_items.append(menu_item)
+                if menu_item_description.get('submenu_description', None) is not None:
+                    menu_item.set_submenu(generate_gtk_menu(menu_item_description['submenu_description']))
+                if menu_item_description.get('subitem_description', None) is not None:
+                    for sub_item in generate_gtk_menu_items(menu_item_description['subitem_description'], indentation=indentation + '  '):
+                        menu_items.append(sub_item)
+            return menu_items
+        
         def generate_gtk_menu(menu_descripion):
             menu = gtk.Menu()
             menu.set_double_buffered(True)
-            for menu_item_description in menu_descripion:
-                menu_item = add_menu_item(menu=menu, **menu_item_description)
-                if menu_item_description.get('submenu_description', None) is not None:
-                    menu_item.set_submenu(generate_gtk_menu(menu_item_description['submenu_description']))
-            return menu     
+            for menu_item in generate_gtk_menu_items(menu_descripion):
+                menu.append(menu_item)
+            return menu
 
         self._ind.set_menu(generate_gtk_menu(self._menu_description))
 
@@ -245,8 +256,6 @@ class IndicatorUpdateThread(Thread):
             self.update_node_info()
             menu_descripion = self.build_menu()
             if str(self._menu_description) != str(menu_descripion):
-                print 'old:', self._menu_description
-                print 'new:', menu_descripion
                 self._menu_description = menu_descripion
                 gtk.gdk.threads_enter()
                 self.update_menu()
