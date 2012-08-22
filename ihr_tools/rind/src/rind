@@ -62,6 +62,11 @@ class IndicatorUpdateThread(Thread):
         self._publishers = {} # Publishers keyed by topic
         self._subscribers = {} # Subscribers keyed by topic
         self._menu_description = []
+        self._launchers = []
+        if _has_rqt_gui:
+            self._launchers.append({'text': 'rqt_gui', 'activate': self.menuitem_launchrqt})
+        if _has_rxtools:
+            self._launchers.append({'text': 'rxConsole', 'activate': self.menuitem_launchrxconsole})
 
     def check_master(self):
         if not self._master_online and self._master.is_online():
@@ -201,12 +206,8 @@ class IndicatorUpdateThread(Thread):
 
             add_submenu(menu_description, 'Nodes', node_menu_description, seperator=True)
 
-        launcher_menu_description = []
-        if _has_rqt_gui:
-            launcher_menu_description.append({'text': 'rqt_gui', 'enabled': self._master_online, 'activate': self.menuitem_launchrqt})
-        if _has_rxtools:
-            launcher_menu_description.append({'text': 'rxConsole', 'enabled': self._master_online, 'activate': self.menuitem_launchrxconsole})
-        add_submenu(menu_description, 'Launchers', launcher_menu_description, seperator=True)
+        if self._master_online:
+            add_submenu(menu_description, 'Launchers', self._launchers, seperator=True)
 
         menu_description.append({})
         menu_description.append({'text': 'Quit', 'activate': self.menuitem_quit})
