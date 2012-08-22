@@ -45,8 +45,10 @@ import roslib; roslib.load_manifest('rind')
 import rosgraph.masterapi
 
 __package_dir = roslib.packages.get_pkg_dir('rind')
+_has_rxtools = roslib.packages.get_pkg_dir('rxtools', required=False) is not None
+_has_rqt_gui = roslib.packages.get_pkg_dir('rqt_gui', required=False) is not None
 
-class Update(Thread):
+class IndicatorUpdateThread(Thread):
     def __init__(self, ind):
         self._ind = ind
         self._exit = False
@@ -199,11 +201,14 @@ class Update(Thread):
 
         add_menu_separator(menu)
 
-        menu_item = add_menu_item(menu, 'Launch rqt_gui')
-        menu_item.connect('activate', self.menuitem_launchrqt)
-
-        menu_item = add_menu_item(menu, 'Launch rxConsole')
-        menu_item.connect('activate', self.menuitem_launchconsole)
+        if self._master_online:
+            if _has_rqt_gui:
+                menu_item = add_menu_item(menu, 'Launch rqt_gui')
+                menu_item.connect('activate', self.menuitem_launchrqt)
+    
+            if _has_rxtools:
+                menu_item = add_menu_item(menu, 'Launch rxConsole')
+                menu_item.connect('activate', self.menuitem_launchconsole)
 
         menu_item = add_menu_item(menu, 'Quit')
         menu_item.connect('activate', self.menuitem_quit)
@@ -225,15 +230,15 @@ class Update(Thread):
         self._exit = True
 
 if __name__ == '__main__':
-    ind = appindicator.Indicator('example-simple-client', 'rind-idle', appindicator.CATEGORY_APPLICATION_STATUS, __package_dir + '/icons')
+    ind = appindicator.Indicator('ros-indicator', 'rind-idle', appindicator.CATEGORY_APPLICATION_STATUS, __package_dir + '/icons')
     ind.set_status(appindicator.STATUS_ACTIVE)
     #ind.set_status(appindicator.STATUS_ATTENTION)
     ind.set_attention_icon('rind-red')
-    update = Update(ind)
-    update.start()
+    indicatorUpdateThread = IndicatorUpdateThread(ind)
+    indicatorUpdateThread.start()
     gtk.gdk.threads_init()
     try:
         gtk.main()
     except KeyboardInterrupt:
-        update.stop()
+        indicatorUpdateThread.stop()
         sys.exit(0)
