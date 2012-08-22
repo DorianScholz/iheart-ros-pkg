@@ -40,6 +40,7 @@ from threading import Thread
 import appindicator
 import sys
 import glob
+from exceptions import IOError
 
 import roslib; roslib.load_manifest('rind')
 import rosgraph.masterapi
@@ -50,6 +51,10 @@ _has_rxtools = roslib.packages.get_pkg_dir('rxtools', required=False) is not Non
 _has_rqt_gui = roslib.packages.get_pkg_dir('rqt_gui', required=False) is not None
 
 class IndicatorUpdateThread(Thread):
+    default_launchers = [
+        {'text': 'rqt_gui', 'rosdep': 'rqt_gui', 'command': 'rosrun rqt_gui rqt_gui'},
+        {'text': 'rxConsole', 'rosdep': 'rxtools', 'command': 'rxconsole'},
+    ]
     def __init__(self, indicator):
         super(IndicatorUpdateThread, self).__init__()
         self._ind = indicator
@@ -63,10 +68,26 @@ class IndicatorUpdateThread(Thread):
         self._subscribers = {} # Subscribers keyed by topic
         self._menu_description = []
         self._launchers = []
-        if _has_rqt_gui:
-            self._launchers.append({'text': 'rqt_gui', 'activate': self.menuitem_launchrqt})
-        if _has_rxtools:
-            self._launchers.append({'text': 'rxConsole', 'activate': self.menuitem_launchrxconsole})
+        self.load_config(os.path.join(os.environ['HOME'], '.ros', 'rind.conf'))
+        
+    def load_config(self, config_file_name):
+        config_file = None
+        try:
+            config_file = open(config_file_name)
+        except IOError, e:
+            print 'Could not read configuration from file at:%s\n%s' % (config_file_name, e)
+        
+        self._config = {}
+        if config_file is not None:
+            try:
+                self._config = eval(config_file.read())
+            except Exception, e:
+                print 'Could not parse configuration: %s' % e
+
+        for launcher in self._config.get('launchers', self.default_launchers):
+            if 'rosdep' not in launcher or roslib.packages.get_pkg_dir(launcher['rosdep'], required=False) is not None:
+                launcher['activate'] = self.menuitem_launch
+                self._launchers.append(launcher)
 
     def check_master(self):
         if not self._master_online and self._master.is_online():
@@ -114,19 +135,19 @@ class IndicatorUpdateThread(Thread):
         if self._master.is_online():
             self._nodes = rosnode.get_node_names()
 
-    def menuitem_quit(self, item):
+    def menuitem_quit(self, menu_item):
         print 'Shutting down'
         self.stop()
         # Shutdown here...
         sys.exit(0)
 
-    def menuitem_launchrxconsole(self, item):
-        subprocess.Popen(['rxconsole'], shell=True, stdin=None, stdout=None, stderr=None, cwd=os.environ['HOME'])
+    def menuitem_launch(self, menu_item):
+        if 'command' in menu_item.user_args:
+            subprocess.Popen(menu_item.user_args['command'], shell=True, stdin=None, stdout=None, stderr=None, cwd=os.environ['HOME'])
+        else:
+            print 'No command found in user_args:', menu_item.user_args
 
-    def menuitem_launchrqt(self, item):
-        subprocess.Popen(['rosrun rqt_gui rqt_gui'], shell=True, stdin=None, stdout=None, stderr=None, cwd=os.environ['HOME'])
-
-    def menuitem_roscore(self, item):
+    def menuitem_roscore(self, menu_item):
         if self._master_online:
             if self._roscore_pid is not None:
                 print 'Stopping ROS Core'
@@ -223,6 +244,7 @@ class IndicatorUpdateThread(Thread):
                 menu_item.set_sensitive(enabled)
                 if activate is not None:
                     menu_item.connect('activate', activate)
+            menu_item.user_args = kwargs
             menu_item.show()
             if menu is not None:
                 menu.append(menu_item)
