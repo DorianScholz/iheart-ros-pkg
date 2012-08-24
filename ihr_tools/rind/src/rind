@@ -47,8 +47,6 @@ import rosgraph.masterapi
 import rosnode
 
 __package_dir = roslib.packages.get_pkg_dir('rind')
-_has_rxtools = roslib.packages.get_pkg_dir('rxtools', required=False) is not None
-_has_rqt_gui = roslib.packages.get_pkg_dir('rqt_gui', required=False) is not None
 
 class IndicatorUpdateThread(Thread):
     _default_config = {
