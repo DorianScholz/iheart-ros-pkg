@@ -51,10 +51,13 @@ _has_rxtools = roslib.packages.get_pkg_dir('rxtools', required=False) is not Non
 _has_rqt_gui = roslib.packages.get_pkg_dir('rqt_gui', required=False) is not None
 
 class IndicatorUpdateThread(Thread):
-    default_launchers = [
-        {'text': 'rqt_gui', 'rosdep': 'rqt_gui', 'command': 'rosrun rqt_gui rqt_gui'},
-        {'text': 'rxConsole', 'rosdep': 'rxtools', 'command': 'rxconsole'},
-    ]
+    _default_config = {
+        'launchers': [
+            {'text': 'rqt_gui', 'rosdep': 'rqt_gui', 'command': 'rosrun rqt_gui rqt_gui'},
+            {'text': 'rxConsole', 'rosdep': 'rxtools', 'command': 'rxconsole'},
+        ],
+        'menu_parts': ['roscore', 'topics', 'services', 'nodes', 'launchers', 'quit'],
+    }                   
     def __init__(self, indicator):
         super(IndicatorUpdateThread, self).__init__()
         self._ind = indicator
@@ -77,14 +80,17 @@ class IndicatorUpdateThread(Thread):
         except IOError, e:
             print 'Could not read configuration from file at:%s\n%s' % (config_file_name, e)
         
-        self._config = {}
+        config_from_file = {}
         if config_file is not None:
             try:
-                self._config = eval(config_file.read())
+                config_from_file = eval(config_file.read())
             except Exception, e:
                 print 'Could not parse configuration: %s' % e
 
-        for launcher in self._config.get('launchers', self.default_launchers):
+        self._config = self._default_config.copy()
+        self._config.update(config_from_file)
+
+        for launcher in self._config['launchers']:
             if 'rosdep' not in launcher or roslib.packages.get_pkg_dir(launcher['rosdep'], required=False) is not None:
                 launcher['activate'] = self.menuitem_launch
                 self._launchers.append(launcher)
@@ -160,20 +166,19 @@ class IndicatorUpdateThread(Thread):
             #subprocess.Popen(['roscore'], shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=os.environ['HOME'])
             subprocess.Popen(['roscore > /dev/null'], shell=True, stdin=None, stdout=None, stderr=None, cwd=os.environ['HOME'])
 
-    def build_menu(self):
-        def add_submenu(menu_description, submenu_name, submenu_description, folding_item_count=5, seperator=False):
-            if len(submenu_description) == 0:
-                return
-            if seperator:
-                menu_description.append({})
-            menu_description.append({'text': submenu_name})
-            if len(submenu_description) > folding_item_count:
-                menu_description[-1]['submenu_description'] = submenu_description
-            else:
-                menu_description[-1]['subitem_description'] = submenu_description
-                menu_description[-1]['enabled'] = False
-            
-        menu_description = []
+    def _menu_add_submenu(self, menu_description, submenu_name, submenu_description, folding_item_count=5, seperator=False):
+        if len(submenu_description) == 0:
+            return
+        if seperator:
+            menu_description.append({})
+        menu_description.append({'text': submenu_name})
+        if len(submenu_description) > folding_item_count:
+            menu_description[-1]['submenu_description'] = submenu_description
+        else:
+            menu_description[-1]['subitem_description'] = submenu_description
+            menu_description[-1]['enabled'] = False
+        
+    def _menu_add_roscore(self, menu_description):
         menu_item_description = {'activate': self.menuitem_roscore}
         if self._master_online:
             self._ind.set_icon('rind-panel')
@@ -187,6 +192,7 @@ class IndicatorUpdateThread(Thread):
             menu_item_description['text'] = 'Launch ROS Core'
         menu_description.append(menu_item_description)
 
+    def _menu_add_topics(self, menu_description):        
         if len(self._topics) > 0:
             topic_menu_descripion = []
             for topic in self._topics:
@@ -195,17 +201,18 @@ class IndicatorUpdateThread(Thread):
                 publisher_menu_description = []
                 for publisher in self._publishers.get(topic, []):
                     publisher_menu_description.append({'text': publisher, 'enabled': False})
-                add_submenu(submenu_description, 'Publishers', publisher_menu_description)
+                self._menu_add_submenu(submenu_description, 'Publishers', publisher_menu_description)
 
                 subscriber_menu_description = []
                 for subscriber in self._subscribers.get(topic, []):
                     subscriber_menu_description.append({'text': subscriber, 'enabled': False})
-                add_submenu(submenu_description, 'Subscribers', subscriber_menu_description)
+                self._menu_add_submenu(submenu_description, 'Subscribers', subscriber_menu_description)
 
-                add_submenu(topic_menu_descripion, topic, submenu_description, folding_item_count=0)
+                self._menu_add_submenu(topic_menu_descripion, topic, submenu_description, folding_item_count=0)
             
-            add_submenu(menu_description, 'Topics', topic_menu_descripion, seperator=True)
+            self._menu_add_submenu(menu_description, 'Topics', topic_menu_descripion, seperator=True)
 
+    def _menu_add_services(self, menu_description):        
         if len(self._service_providers) > 0:
             service_menu_descripion = []
             for service in sorted(self._service_providers.keys()):
@@ -214,25 +221,32 @@ class IndicatorUpdateThread(Thread):
                 provider_description = []
                 for provider in self._service_providers.get(service, []):
                     provider_description.append({'text': provider, 'enabled': False})
-                add_submenu(submenu_description, 'Providers', provider_description)
+                self._menu_add_submenu(submenu_description, 'Providers', provider_description)
 
-                add_submenu(service_menu_descripion, service, submenu_description, folding_item_count=0)
+                self._menu_add_submenu(service_menu_descripion, service, submenu_description, folding_item_count=0)
 
-            add_submenu(menu_description, 'Services', service_menu_descripion, seperator=True)
+            self._menu_add_submenu(menu_description, 'Services', service_menu_descripion, seperator=True)
 
+    def _menu_add_nodes(self, menu_description):        
         if len(self._nodes) > 0:
             node_menu_description = []
             for node in self._nodes:
                 node_menu_description.append({'text': node, 'enabled': False})
 
-            add_submenu(menu_description, 'Nodes', node_menu_description, seperator=True)
+            self._menu_add_submenu(menu_description, 'Nodes', node_menu_description, seperator=True)
 
+    def _menu_add_launchers(self, menu_description):
         if self._master_online:
-            add_submenu(menu_description, 'Launchers', self._launchers, seperator=True)
+            self._menu_add_submenu(menu_description, 'Launchers', self._launchers, seperator=True)
 
+    def _menu_add_quit(self, menu_description):
         menu_description.append({})
         menu_description.append({'text': 'Quit', 'activate': self.menuitem_quit})
 
+    def build_menu(self):
+        menu_description = []
+        for menu_part in self._config['menu_parts']:
+            getattr(self, '_menu_add_%s' % menu_part)(menu_description)
         return menu_description
 
     def update_menu(self):
