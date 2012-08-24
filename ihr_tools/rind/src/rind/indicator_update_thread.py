@@ -31,13 +31,11 @@
 # ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 #
-import gtk
 import time
 import os
 import signal
 import subprocess
 from threading import Thread
-import appindicator
 import sys
 import glob
 from exceptions import IOError
@@ -45,8 +43,6 @@ from exceptions import IOError
 import roslib; roslib.load_manifest('rind')
 import rosgraph.masterapi
 import rosnode
-
-__package_dir = roslib.packages.get_pkg_dir('rind')
 
 class IndicatorUpdateThread(Thread):
     _default_config = {
@@ -58,7 +54,7 @@ class IndicatorUpdateThread(Thread):
     }                   
     def __init__(self, indicator):
         super(IndicatorUpdateThread, self).__init__()
-        self._ind = indicator
+        self._indicator = indicator
         self._exit = False
         self._master = rosgraph.masterapi.Master('/rind')
         self._master_online = 0
@@ -90,13 +86,14 @@ class IndicatorUpdateThread(Thread):
 
         for launcher in self._config['launchers']:
             if 'rosdep' not in launcher or roslib.packages.get_pkg_dir(launcher['rosdep'], required=False) is not None:
-                launcher['activate'] = self.menuitem_launch
+                launcher['activate'] = self._on_menu_item_launch
                 self._launchers.append(launcher)
 
     def check_master(self):
         if not self._master_online and self._master.is_online():
             print 'Master has come online'
             self._master_online = True
+            self._indicator.set_icon('rind-panel.svg')
 
             try:
                 # try to get roscore's pid from the pid of rosmaster 
@@ -115,6 +112,7 @@ class IndicatorUpdateThread(Thread):
         elif self._master_online and not self._master.is_online():
             print 'Master has gone offline'
             self._master_online = False
+            self._indicator.set_icon('rind-idle.svg')
             self._topics = []
             self._nodes = []
             self._roscore_pid = None
@@ -139,24 +137,23 @@ class IndicatorUpdateThread(Thread):
         if self._master.is_online():
             self._nodes = rosnode.get_node_names()
 
-    def menuitem_quit(self, menu_item):
+    def _on_menu_item_quit(self, menu_item):
         print 'Shutting down'
         self.stop()
         # Shutdown here...
         sys.exit(0)
 
-    def menuitem_launch(self, menu_item):
+    def _on_menu_item_launch(self, menu_item):
         if 'command' in menu_item.user_args:
             subprocess.Popen(menu_item.user_args['command'], shell=True, stdin=None, stdout=None, stderr=None, cwd=os.environ['HOME'])
         else:
             print 'No command found in user_args:', menu_item.user_args
 
-    def menuitem_roscore(self, menu_item):
+    def _on_menu_item_roscore(self, menu_item):
         if self._master_online:
             if self._roscore_pid is not None:
                 print 'Stopping ROS Core'
                 os.kill(self._roscore_pid, signal.SIGINT)
-                self._master_online = False
             else:
                 print 'Error Stopping ROS Core by PID'
         else:
@@ -177,16 +174,14 @@ class IndicatorUpdateThread(Thread):
             menu_description[-1]['enabled'] = False
         
     def _menu_add_roscore(self, menu_description):
-        menu_item_description = {'activate': self.menuitem_roscore}
+        menu_item_description = {'activate': self._on_menu_item_roscore}
         if self._master_online:
-            self._ind.set_icon('rind-panel')
             if self._roscore_pid is not None:
                 menu_item_description['text'] = 'Shutdown ROS Core'
             else:
                 menu_item_description['text'] = 'Connected to ROS Master'
                 menu_item_description['enabled'] = False
         else:
-            self._ind.set_icon('rind-idle')
             menu_item_description['text'] = 'Launch ROS Core'
         menu_description.append(menu_item_description)
 
@@ -239,76 +234,24 @@ class IndicatorUpdateThread(Thread):
 
     def _menu_add_quit(self, menu_description):
         menu_description.append({})
-        menu_description.append({'text': 'Quit', 'activate': self.menuitem_quit})
+        menu_description.append({'text': 'Quit', 'activate': self._on_menu_item_quit})
 
-    def build_menu(self):
+    def build_menu_description(self):
         menu_description = []
         for menu_part in self._config['menu_parts']:
             getattr(self, '_menu_add_%s' % menu_part)(menu_description)
         return menu_description
-
-    def update_menu(self):
-        def add_menu_item(menu=None, text=None, enabled=True, activate=None, indentation='', **kwargs):
-            if text is None:
-                menu_item = gtk.SeparatorMenuItem()
-            else:
-                menu_item = gtk.MenuItem(indentation + text.replace('_', '__'))
-                menu_item.set_sensitive(enabled)
-                if activate is not None:
-                    menu_item.connect('activate', activate)
-            menu_item.user_args = kwargs
-            menu_item.show()
-            if menu is not None:
-                menu.append(menu_item)
-            return menu_item
-        
-        def generate_gtk_menu_items(menu_descripion, indentation=''):
-            menu_items = []
-            for menu_item_description in menu_descripion:
-                menu_item = add_menu_item(indentation=indentation, **menu_item_description)
-                menu_items.append(menu_item)
-                if menu_item_description.get('submenu_description', None) is not None:
-                    menu_item.set_submenu(generate_gtk_menu(menu_item_description['submenu_description']))
-                if menu_item_description.get('subitem_description', None) is not None:
-                    for sub_item in generate_gtk_menu_items(menu_item_description['subitem_description'], indentation=indentation + '  '):
-                        menu_items.append(sub_item)
-            return menu_items
-        
-        def generate_gtk_menu(menu_descripion):
-            menu = gtk.Menu()
-            menu.set_double_buffered(True)
-            for menu_item in generate_gtk_menu_items(menu_descripion):
-                menu.append(menu_item)
-            return menu
-
-        self._ind.set_menu(generate_gtk_menu(self._menu_description))
 
     def run(self):
         while not self._exit:
             self.check_master()
             self.update_topic_info()
             self.update_node_info()
-            menu_descripion = self.build_menu()
+            menu_descripion = self.build_menu_description()
             if str(self._menu_description) != str(menu_descripion):
                 self._menu_description = menu_descripion
-                gtk.gdk.threads_enter()
-                self.update_menu()
-                gtk.gdk.threads_leave()
+                self._indicator.update_menu(menu_descripion)
             time.sleep(1)
 
     def stop(self):
         self._exit = True
-
-if __name__ == '__main__':
-    indicator = appindicator.Indicator('ros-indicator', 'rind-idle', appindicator.CATEGORY_APPLICATION_STATUS, __package_dir + '/icons')
-    indicator.set_status(appindicator.STATUS_ACTIVE)
-    #indicator.set_status(appindicator.STATUS_ATTENTION)
-    indicator.set_attention_icon('rind-red')
-    indicatorUpdateThread = IndicatorUpdateThread(indicator)
-    indicatorUpdateThread.start()
-    gtk.gdk.threads_init()
-    try:
-        gtk.main()
-    except KeyboardInterrupt:
-        indicatorUpdateThread.stop()
-        sys.exit(0)
