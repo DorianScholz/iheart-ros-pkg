@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import os, sys
 from PyQt4 import QtGui, QtCore
-from .indicator_menu import IndicatorMenu
+from indicator_menu import IndicatorMenu
 
 class QtIndicatorMenu(QtCore.QObject, IndicatorMenu):
     _update_menu_signal = QtCore.pyqtSignal(list)

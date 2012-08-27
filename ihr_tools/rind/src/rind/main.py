@@ -31,16 +31,17 @@
 # ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 #
-try:
-    from .qt_indicator_menu import QtIndicatorMenu
-    IndicatorMenu = QtIndicatorMenu
-except:
-    from .gtk_indicator_menu import GtkIndicatorMenu
-    IndicatorMenu = GtkIndicatorMenu
 
 import sys
 import roslib; roslib.load_manifest('rind')
 from .indicator_update_thread import IndicatorUpdateThread
+
+try:
+    from qt_indicator_menu import QtIndicatorMenu
+    IndicatorMenu = QtIndicatorMenu
+except:
+    from gtk_indicator_menu import GtkIndicatorMenu
+    IndicatorMenu = GtkIndicatorMenu
 
 def main():
     package_dir = roslib.packages.get_pkg_dir('rind')

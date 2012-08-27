@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import gtk
 import appindicator
-from .indicator_menu import IndicatorMenu
+from indicator_menu import IndicatorMenu
 
 class GtkIndicatorMenu(IndicatorMenu):
         
