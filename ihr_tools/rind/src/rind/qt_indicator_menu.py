@@ -26,7 +26,7 @@ class QtIndicatorMenu(QtCore.QObject, IndicatorMenu):
     def _toolkit_create_menu_item(self, text, activate_callback=None):
         menu_item = QtGui.QAction(text, self)
         if activate_callback is not None:
-            menu_item.triggered.connect(activate_callback)
+            menu_item.triggered.connect(lambda checked: activate_callback(menu_item))
         menu_item.set_sensitive = menu_item.setEnabled
         menu_item.set_submenu = menu_item.setMenu
         return menu_item
