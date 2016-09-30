@@ -51,7 +51,7 @@ class IndicatorUpdateThread(Thread):
             {'text': 'rxConsole', 'rosdep': 'rxtools', 'command': 'rxconsole'},
         ],
         'menu_parts': ['roscore', 'topics', 'services', 'nodes', 'launchers', 'quit'],
-    }                   
+    }
     def __init__(self, indicator):
         super(IndicatorUpdateThread, self).__init__()
         self._indicator = indicator
@@ -66,14 +66,14 @@ class IndicatorUpdateThread(Thread):
         self._menu_description = []
         self._launchers = []
         self.load_config(os.path.join(os.environ['HOME'], '.ros', 'rind.conf'))
-        
+
     def load_config(self, config_file_name):
         config_file = None
         try:
             config_file = open(config_file_name)
         except IOError, e:
             print 'Could not read configuration from file at:%s\n%s' % (config_file_name, e)
-        
+
         config_from_file = {}
         if config_file is not None:
             try:
@@ -96,7 +96,7 @@ class IndicatorUpdateThread(Thread):
             self._indicator.set_icon('rind-panel.svg')
 
             try:
-                # try to get roscore's pid from the pid of rosmaster 
+                # try to get roscore's pid from the pid of rosmaster
                 self._roscore_pid = int(subprocess.check_output(['ps', '-p', '%d' % self._master.getPid(), '-oppid=']).strip())
             except:
                 # try to get roscore's pid from .pid file
@@ -106,9 +106,9 @@ class IndicatorUpdateThread(Thread):
                     self._roscore_pid = int(pid_file.readline())
                 else:
                     self._roscore_pid = None
-            
+
             print 'ROS Core pid', self._roscore_pid
-            
+
         elif self._master_online and not self._master.is_online():
             print 'Master has gone offline'
             self._master_online = False
@@ -172,7 +172,7 @@ class IndicatorUpdateThread(Thread):
         else:
             menu_description[-1]['subitem_description'] = submenu_description
             menu_description[-1]['enabled'] = False
-        
+
     def _menu_add_roscore(self, menu_description):
         menu_item_description = {'activate': self._on_menu_item_roscore}
         if self._master_online:
@@ -185,12 +185,12 @@ class IndicatorUpdateThread(Thread):
             menu_item_description['text'] = 'Launch ROS Core'
         menu_description.append(menu_item_description)
 
-    def _menu_add_topics(self, menu_description):        
+    def _menu_add_topics(self, menu_description):
         if len(self._topics) > 0:
             topic_menu_descripion = []
             for topic in self._topics:
                 submenu_description = []
-                
+
                 publisher_menu_description = []
                 for publisher in self._publishers.get(topic, []):
                     publisher_menu_description.append({'text': publisher, 'enabled': False})
@@ -202,10 +202,10 @@ class IndicatorUpdateThread(Thread):
                 self._menu_add_submenu(submenu_description, 'Subscribers', subscriber_menu_description)
 
                 self._menu_add_submenu(topic_menu_descripion, topic, submenu_description, folding_item_count=0)
-            
+
             self._menu_add_submenu(menu_description, 'Topics', topic_menu_descripion, seperator=True)
 
-    def _menu_add_services(self, menu_description):        
+    def _menu_add_services(self, menu_description):
         if len(self._service_providers) > 0:
             service_menu_descripion = []
             for service in sorted(self._service_providers.keys()):
@@ -220,7 +220,8 @@ class IndicatorUpdateThread(Thread):
 
             self._menu_add_submenu(menu_description, 'Services', service_menu_descripion, seperator=True)
 
-    def _menu_add_nodes(self, menu_description):        
+    def _menu_add_nodes(self, menu_description):
+        self.update_node_info()
         if len(self._nodes) > 0:
             node_menu_description = []
             for node in self._nodes:
@@ -245,8 +246,8 @@ class IndicatorUpdateThread(Thread):
     def run(self):
         while not self._exit:
             self.check_master()
-            self.update_topic_info()
-            self.update_node_info()
+            if 'topics' in self._config['menu_parts'] or 'services' in self._config['menu_parts']:
+                self.update_topic_info()
             menu_descripion = self.build_menu_description()
             if str(self._menu_description) != str(menu_descripion):
                 self._menu_description = menu_descripion
